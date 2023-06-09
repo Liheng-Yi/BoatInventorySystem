@@ -122,6 +122,37 @@ function get_loads_for_boat(boat_id) {
             return loads;
         });
 }
+
+function check_load(object) {
+    if (object.volume) {
+        const volumeRegex = /^\d+$/;
+        if (!volumeRegex.test(object.volume) || object.volume <= 0 || object.volume > 10000) {
+            return 1;  // Error in 'volume'. It should be a positive integer and less than or equal to 10000.
+        }
+    }
+    if (object.item) {
+        if (object.item.length > 1000) {
+            return 2;  // Error in 'item'. Length of the string should not exceed 1000 characters.
+        }
+    }
+    if (object.id) {
+        return 3;  // Updating the value of 'id' is not allowed
+    }
+}
+
+function put_load(id, updated_load) {
+    const key = datastore.key([LOAD, parseInt(id, 10)]);
+    return datastore.get(key)
+        .then((load) => {
+            if (load[0] === undefined || load[0] === null) {
+                return undefined;
+            } else {
+                updated_load["id"] = id;  // Preserve the id
+                return datastore.save({ "key": key, "data": updated_load });
+            }
+        });
+}
+
 /* ------------- Begin loadd Model Functions ------------- */
 
 router_load.post('/', function (req, res) {
@@ -204,6 +235,58 @@ router_load.get('/:id', function (req, res) {
             }
         });
 });
+
+router_load.put('/:id', function (req, res) {
+    // Check Accept and Content-Type headers
+    if (!req.accepts('application/json') || req.get('Content-Type') !== 'application/json') {
+        res.type('json');
+        return res.status(406).json({
+            "Error": "Not acceptable. Only application/json data type is supported for PUT request."
+        });
+    }
+
+    let sign = check_load(req.body);  // Use check_load function
+    switch(sign) {
+    case 1:
+        return res.status(400).json({
+            "Error": "The volume attribute is invalid. It must be a positive integer and less than or equal to 10000."
+        });
+    case 2:
+        return res.status(400).json({
+            "Error": "The item attribute is too long. Maximum length is 1000 characters."
+        });
+    case 3:
+        return res.status(400).json({
+            "Error": "Updating the value of id is not allowed."
+        });
+    default:
+    }
+
+    let object = req.body;
+
+    if (!req.body.volume){
+        object.volume = null;
+    }
+    if (!req.body.item){
+        object.item = null;
+    }
+    if (!req.body.creation_date){
+        object.creation_date = null;
+    }
+
+    put_load(req.params.id, object)
+        .then(load => {
+            if (load === undefined) {
+                res.status(404).json({ 'Error': 'No load with this load_id exists' });
+            } else {
+                res.status(303).location(`/loads/${load.id}`).json(load);
+            }
+        });
+});
+
+
+
+
 
 /* ------------- Begin boat Model Functions ------------- */
 function post_boat(name, type, length) {
@@ -304,7 +387,7 @@ async function isBoatNameUnique(name) {
 }
 
 
-function check(object){
+function check_boat(object){
     console.log(object);
     if (object.name){
         const nameRegex = /^[a-zA-Z0-9 ]+$/;
@@ -382,7 +465,7 @@ router_boat.post('/', async function (req, res) {
         });
     }
     // check 
-    let sign = check(req.body);
+    let sign = check_boat(req.body);
     switch(sign) {
     case 1:
         return res.status(400).json({
@@ -438,6 +521,7 @@ router_boat.post('/', async function (req, res) {
     }
 });
 
+
 router_boat.put('/:id', function (req, res) {
     // Check Accept and Content-Type headers
     if (!req.accepts('application/json') || req.get('Content-Type') !== 'application/json') {
@@ -447,7 +531,7 @@ router_boat.put('/:id', function (req, res) {
         });
     }
 
-    let sign = check(req.body);
+    let sign = check_boat(req.body);
     switch(sign) {
     case 1:
         return res.status(400).json({
@@ -501,7 +585,6 @@ router_boat.put('/:id', function (req, res) {
                     // A different boat with the new name already exists
                     res.status(403).json({ "Error": "The name of a boat must be unique" });
                     }
-
                     put_boat(req.params.id, object)
                         .then(boat => {
                             if (boat === undefined) {
@@ -576,7 +659,7 @@ router_boat.patch('/:id', function (req, res) {
             "Error": "Not acceptable. Only application/json data type is supported for PATCH request."
         });
     }
-    let sign = check(req.body);
+    let sign = check_boat(req.body);
     switch(sign) {
     case 1:
         return res.status(400).json({
@@ -724,29 +807,6 @@ router_boat.get('/:id/loads', async function (req, res) {
         console.error(error);
         res.status(500).json({ 'Error': 'Failed to fetch loads for boat' });
     }
-});
-
-router_boat.patch('/:id', function (req, res) {
-    if (!req.body.name || !req.body.type || !req.body.length) {
-    res.status(400).json({ "Error": "The request object is missing at least one of the required attributes" });
-    return;
-    }
-    get_boat(req.params.id)
-    .then(boat => {
-        if (boat[0] === undefined || boat[0] === null) {
-            res.status(404).json({ 'Error': 'No boat with this boat_id exists' });
-            return
-        }
-        else{
-            update_boat(req.params.id, req.body.name, req.body.type, req.body.length)
-            .then(() => {
-                get_boat(req.params.id)
-                    .then(boat => {
-                        res.status(200).json(boat[0]);
-                    })
-            });
-        }
-    });
 });
 
 
