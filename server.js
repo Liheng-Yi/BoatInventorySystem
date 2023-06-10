@@ -13,7 +13,7 @@ const LOAD = "Load";
 const router_boat = express.Router();
 const router_load = express.Router();
 
-const ITEMS_PER_PAGE = 3;
+const ITEMS_PER_PAGE = 5;
 
 app.use(bodyParser.json());
 
@@ -38,20 +38,28 @@ function get_load(id) {
 }
 
 function get_loads(page) {
-    // defalut offset: 0 for this assignment's purpose
+    // Default offset: 0
     const offset = (page - 1) * ITEMS_PER_PAGE;
 
     const query = datastore.createQuery(LOAD)
         .limit(ITEMS_PER_PAGE)
         .offset(offset);
 
-    return datastore.runQuery(query)
-        .then(results => {
-            const loads = results[0];
-            console.log(results)
-            return loads;
-        });
+    const countQuery = datastore.createQuery(LOAD);
+
+    // Promise to get loads count
+    const countPromise = datastore.runQuery(countQuery).then(results => results[0].length);
+
+    return Promise.all([
+        datastore.runQuery(query),
+        countPromise
+    ]).then(([results, count]) => {
+        const loads = results[0];
+        return { loads, count };
+    });
 }
+
+
 function post_load(volume, item, creation_date, carrier = null) {
     var key = datastore.key(LOAD);
     const new_load = { 
@@ -182,13 +190,21 @@ router_load.get('/', function(req, res) {
     const page = parseInt(req.query.page) || 1;
 
     get_loads(page)
-        .then(loads => {
-            res.status(200).json({ "loads": loads });
+        .then(({loads, count}) => {
+            const response = {
+                "loads": loads,
+                "total_count": count
+            };
+            if (loads.length === ITEMS_PER_PAGE) {
+                response.next = `${req.protocol}://${req.get('host')}/loads?page=${page + 1}`;
+            }
+            res.status(200).json(response);
         })
         .catch(err => {
             res.status(500).json({ 'Error': 'Failed to fetch loads' });
         });
 });
+
 
 router_load.delete('/:id', function(req, res) {
     const load_id = req.params.id;
@@ -284,7 +300,46 @@ router_load.put('/:id', function (req, res) {
         });
 });
 
+router_load.patch('/:id', function (req, res) {
+    // Check Accept and Content-Type headers
+    if (!req.accepts('application/json') || req.get('Content-Type') !== 'application/json') {
+        res.type('json');
+        return res.status(406).json({
+            "Error": "Not acceptable. Only application/json data type is supported for PATCH request."
+        });
+    }
 
+    let sign = check_load(req.body);
+    switch(sign) {
+    case 1:
+        return res.status(400).json({
+            "Error": "The volume attribute is invalid. It must be a positive number."
+        });
+    case 2:
+        return res.status(400).json({
+            "Error": "The volume attribute is too large. Maximum value is 10000."
+        });
+    case 3:
+        return res.status(400).json({
+            "Error": "The item attribute is too long. Maximum length is 1000 characters."
+        });
+    default:
+    }
+    // Check if at least one valid attribute is present
+    if (!req.body.volume && !req.body.item) {
+        res.status(400).json({ "Error": "The request object is missing at least one of the required attributes" });
+        return;
+    }
+    patch_load(req.params.id, req.body)
+        .then(load => {
+            if (load === undefined) {
+                res.status(404).json({ 'Error': 'No load with this load_id exists' });
+            } else {
+                load["self"] = req.protocol + '://' + req.get('host') + req.originalUrl;
+                res.status(200).json(load);
+            }
+        });
+}); 
 
 
 
@@ -434,15 +489,20 @@ function get_boats(page) {
         .limit(ITEMS_PER_PAGE)
         .offset(offset);
 
-    return datastore.runQuery(query)
-        .then(results => {
-            // The results include both the entities and some metadata, we just want the entities
-            const boats = results[0];
+    const countQuery = datastore.createQuery(BOAT);
 
-            // Return the boats
-            return boats;
-        });
+    // Promise to get boats count
+    const countPromise = datastore.runQuery(countQuery).then(results => results[0].length);
+
+    return Promise.all([
+        datastore.runQuery(query),
+        countPromise
+    ]).then(([results, count]) => {
+        const boats = results[0];
+        return { boats, count };
+    });
 }
+
 
 
 /* ------------- End Model Functions ------------- */
@@ -493,7 +553,6 @@ router_boat.post('/', async function (req, res) {
         });
     default:
     }
-
     // Check if boat name is unique
     if (req.body.name){
         const nameUnique = await isBoatNameUnique(req.body.name);
@@ -651,7 +710,6 @@ router_boat.put('/:boat_id/loads/:load_id', function(req, res) {
 });
 
 router_boat.patch('/:id', function (req, res) {
-
     // Check Accept and Content-Type headers
     if (!req.accepts('application/json') || req.get('Content-Type') !== 'application/json') {
         res.type('json');
@@ -733,25 +791,38 @@ router_boat.patch('/:id', function (req, res) {
     }
 });
 
+router_boat.delete('/:id', function(req, res) {
+    // Obtain the boat id
+    const boat_id = req.params.id;
 
+    // Retrieve the boat
+    get_boat(boat_id)
+    .then(boat => {
+        // Ensure the boat exists
+        if (boat[0] === undefined || boat[0] === null) {
+            res.status(404).json({ 'Error': 'No boat with this boat_id exists' });
+            return;
+        }
+        Promise.all(boat[0].loads.map(load => {
+            // Unassign the load from the boat
+            load.carrier = null;
 
-router_boat.delete('/:boat_id', function (req,res){
-    get_boat(req.params.boat_id)
-        .then(boat => {
-            if (boat[0] === undefined || boat[0] === null) {
-                res.status(404).json({ 'Error': 'No boat with this boat_id exists' });
-                return;
-            } else {
-                // Delete the boat
-                delete_boat(req.params.boat_id)
-                    .then(() => {
-                        console.log("Boat deleted successfully");
-                        res.status(204).send();
-                    })
-            }
+            // Update the load
+            return update_load_carrier(load.id, load.carrier);
+        }))
+        .then(() => {
+            // Delete the boat
+            delete_boat(boat_id)
+            .then(() => {
+                res.status(204).end();
+            });
+        })
+        .catch(err => {
+            console.error(err);
+            res.status(500).end();
         });
+    });
 });
-
 
 router_boat.put('/', function (req, res) {
     res.status(405).json({ "Error": "PUT method is not supported on this endpoint. Please send the PUT request to /boats/{id}" });
@@ -814,13 +885,21 @@ router_boat.get('/', function(req, res) {
     const page = parseInt(req.query.page) || 1;
 
     get_boats(page)
-        .then(boats => {
-            res.status(200).json({ "boats": boats });
+        .then(({boats, count}) => {
+            const response = {
+                "boats": boats,
+                "total_count": count
+            };
+            if (boats.length === ITEMS_PER_PAGE) {
+                response.next = `${req.protocol}://${req.get('host')}/boats?page=${page + 1}`;
+            }
+            res.status(200).json(response);
         })
         .catch(err => {
             res.status(500).json({ 'Error': 'Failed to fetch boats' });
         });
 });
+
 
 
 /* ------------- End Controller Functions ------------- */
