@@ -7,7 +7,7 @@ const {Datastore} = require('@google-cloud/datastore');
 
 const bodyParser = require('body-parser');
 const request = require('request');
-
+const { auth, requiresAuth } = require('express-openid-connect');
 const datastore = new Datastore();
 
 // const jwksRsa = require('jwks-rsa');
@@ -33,7 +33,7 @@ app.use(bodyParser.json());
 
 // Import Express and Express OpenID Connect
 
-const { auth, requiresAuth } = require('express-openid-connect');
+
 
 
 
@@ -69,11 +69,7 @@ function getKey(header, callback){
 
 
 /* ------------- Begin Lodging Model Functions ------------- */
-function post_boat(name, type, length, owner, public){
-    var key = datastore.key(BOAT);
-    const new_boat = {"name": name, "type": type, "length": length, "owner": owner, "public": public};
-    return datastore.save({"key":key, "data":new_boat}).then(() => {return {...new_boat, "id": key.id}});
-}
+
 
 function get_boats(owner){
     const q = datastore.createQuery(BOAT);
@@ -84,25 +80,15 @@ function get_boats(owner){
 
 
 
-
-function get_lodgings(owner){
-	const q = datastore.createQuery(LODGING);
-	return datastore.runQuery(q).then( (entities) => {
-			return entities[0].map(fromDatastore).filter( item => item.owner === owner );
-		});
-}
-
-function get_lodgings_unprotected(){
-	const q = datastore.createQuery(LODGING);
-	return datastore.runQuery(q).then( (entities) => {
-			return entities[0].map(fromDatastore);
-		});
-}
-
 /* ------------- End Model Functions ------------- */
 
 /* ------------- Begin Controller Functions ------------- */
 
+function post_boat(name, type, length, owner){
+    var key = datastore.key(BOAT);
+    const new_boat = {"name": name, "type": type, "length": length, "owner": owner};
+    return datastore.save({"key":key, "data":new_boat}).then(() => {return {...new_boat, "id": key.id}});
+}
 
 const verifyToken = (token) => {
   return new Promise((resolve, reject) => {
@@ -124,9 +110,8 @@ const createBoat = (req) => {
   const type = req.body.type;
   const length = req.body.length;
   const owner = req.user.sub;
-  const isPublic = req.body.public;
 
-  return post_boat(name, type, length, owner, isPublic);
+  return post_boat(name, type, length, owner);
 }
 
 boatRouter.post('/', (req, res) => {
@@ -159,14 +144,12 @@ boatRouter.get('/owners/:owner_id/boats', (req, res) => {
         });
 });
 
-function get_boats(owner, publicOnly = false){
+function get_boats(owner){
     const q = datastore.createQuery(BOAT);
     return datastore.runQuery(q).then( (entities) => {
-        if (publicOnly) {
-            return entities[0].map(fromDatastore).filter( boat => boat.public === true );
-        } else {
-            return entities[0].map(fromDatastore).filter( boat => boat.owner === owner );
-        }
+
+        return entities[0].map(fromDatastore).filter( boat => boat.owner === owner );
+
     });
 }
 
