@@ -43,8 +43,6 @@ function get_load(id, owner) {
             // No entity found. Don't try to add the id attribute
             return entity;
         } else {
-            // Use Array.map to call the function fromDatastore. This function
-            // adds id attribute to every element in the array entity
             const loads = entity.map(fromDatastore);
             // Add owner check here
             return loads.filter(load => load.owner === owner);
@@ -345,7 +343,7 @@ router_load.put('/:id', function (req, res) {
                 return res.status(403).json({ "Error": "Invalid or expired token" });
             } else {
                 // Check Accept and Content-Type headers
-                if (!req.accepts('application/json') || req.get('Content-Type') !== 'application/json') {
+                if (!req.is('application/json') || req.get('Content-Type') !== 'application/json') {
                     res.type('json');
                     return res.status(406).json({
                         "Error": "Not acceptable. Only application/json data type is supported for PATCH request."
@@ -417,7 +415,7 @@ router_load.patch('/:id', function (req, res) {
                 return res.status(403).json({ "Error": "Invalid or expired token" });
             } else {
                 // Check Accept and Content-Type headers
-                if (!req.accepts('application/json') || req.get('Content-Type') !== 'application/json') {
+                if (!req.is('application/json') || req.get('Content-Type') !== 'application/json') {
                     res.type('json');
                     return res.status(406).json({
                         "Error": "Not acceptable. Only application/json data type is supported for PATCH request."
@@ -495,9 +493,6 @@ function post_boat(name, type, length, loads, owner) {
 function get_boats() {
     const q = datastore.createQuery(BOAT);
     return datastore.runQuery(q).then((entities) => {
-        // Use Array.map to call the function fromDatastore. This function
-        // adds id attribute to every element in the array at element 0 of
-        // the variable entities
         return entities[0].map(fromDatastore);
     });
 }
@@ -509,8 +504,6 @@ function get_boat(id, owner) {
             // No entity found. Don't try to add the id attribute
             return entity;
         } else {
-            // Use Array.map to call the function fromDatastore. This function
-            // adds id attribute to every element in the array entity
             let boats = entity.map(fromDatastore);
 
             // Only return boats where the owner matches
@@ -685,7 +678,7 @@ router_boat.post('/', async function (req, res) {
                 const owner = decoded.sub;
 
                 // Check Accept header
-                if (!req.accepts('application/json')) {
+                if (!req.is('application/json')) {
                     res.type('json');
                     return res.status(406).json({
                         "Error": "Not acceptable. Only application/json data type is supported for POST request."
@@ -779,7 +772,7 @@ router_boat.put('/:id', function (req, res) {
                             return res.status(403).json({ "Error": "You don't have permission to update this boat" });
                         }
                         // Check Accept and Content-Type headers
-                        if (!req.accepts('application/json') || req.get('Content-Type') !== 'application/json') {
+                        if (!req.is('application/json') || req.get('Content-Type') !== 'application/json') {
                             res.type('json');
                             return res.status(406).json({
                                 "Error": "Not acceptable. Only application/json data type is supported for PATCH request."
@@ -947,7 +940,7 @@ router_boat.patch('/:id', function (req, res) {
             } else {
                 const owner = decoded.sub;
                 // Check Accept and Content-Type headers
-                if (!req.accepts('application/json') || req.get('Content-Type') !== 'application/json') {
+                if (!req.is('application/json') || req.get('Content-Type') !== 'application/json') {
                     res.type('json');
                     return res.status(406).json({
                         "Error": "Not acceptable. Only application/json data type is supported for PATCH request."
@@ -1148,16 +1141,16 @@ router_boat.get('/:id', function (req, res) {
                 const owner = decoded.sub; 
                 get_boat(req.params.id, owner)
                     .then(boat => {
-                        if (!req.accepts('application/json') || !req.accepts('text/html') ) {
+                        if (!req.is('application/json') || !req.is('text/html') ) {
                             res.status(415).json(boat[0]);
                         }
                         if (boat[0] === undefined || boat[0] === null) {
                             res.status(404).json({ 'Error': 'No boat with this boat_id exists' });
                         } else {
                             boat[0]["self"] = req.protocol + '://' + req.get('host') + req.originalUrl;
-                            if (req.accepts('application/json')) {
+                            if (req.is('application/json')) {
                                 res.status(200).json(boat[0]);
-                            } else if (req.accepts('text/html')) {
+                            } else if (req.is('text/html')) {
                                 let html = `<ul>
                                     <li>Name: ${boat[0].name}</li>
                                     <li>Type: ${boat[0].type}</li>
